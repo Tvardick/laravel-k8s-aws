@@ -1,0 +1,15 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Secrets
+.env
+*.pem
+kubeconfig*
+
+# OS/editor
+.DS_Store
+*.swp
