@@ -82,7 +82,8 @@ Cost budget.
 - Budget name: `pet-usage`
 - Period: Monthly
 - Budgeted amount: `10`
-- Budget scope → Advanced options → Charge types: **зніміть галочки `Credits` та `Refunds`**.
+- Scope options → **Filter specific AWS cost dimensions** → Dimension: `Charge type` →
+  `Excludes` → Values: `Credit`, `Refund` → **Apply filter**.
 
 **Не пропускайте крок з `Credits`.** Якщо кредити враховані, витрати в бюджеті завжди
 дорівнюють $0, і alert ніколи не спрацює.
