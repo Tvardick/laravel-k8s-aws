@@ -1,28 +1,29 @@
 # День 1: AWS-акаунт та Notes API — план реалізації
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-> Tasks 1-3 are manual (browser, credit card, personal accounts). Only the author can do them.
+> The author implements all tasks personally (learning project). Tasks 1-3 need personal accounts.
 
-**Goal:** Безпечний AWS-акаунт з доступом через CLI, публічний GitHub-репозиторій та
+**Goal:** Захищений AWS-акаунт з доступом через CLI, публічний GitHub-репозиторій та
 Laravel API `notes` (CRUD) з зеленими Pest-тестами.
 
-**Architecture:** AWS-частина в день 1 — лише акаунт, IAM та Budgets. Ресурси не
-створюються. Laravel-застосунок живе в `app/` у корені репозиторію. Сьогодні тести працюють
-на SQLite in-memory. PostgreSQL з'явиться в день 2 через docker-compose.
+**Architecture:** AWS-частина в день 1 — лише акаунт, MFA, Budgets та доступ через CLI.
+Ресурси не створюються. Laravel-застосунок живе в `app/` у корені репозиторію. Сьогодні тести
+працюють на SQLite in-memory. PostgreSQL з'явиться в день 2 через docker-compose.
 
-**Tech Stack:** AWS (IAM, Budgets), AWS CLI v2, GitHub + `gh`, PHP 8.5, Laravel (остання
-версія з `composer create-project`), Pest.
+**Tech Stack:** AWS (новий досвід: AWS Settings, Builder ID, Budgets), AWS CLI v2, GitHub +
+`gh`, PHP 8.5, Laravel (остання версія з `composer create-project`), Pest.
 
-**Spec:** `docs/specs/2026-10-14-laravel-k8s-aws-design.md` (секції 4.1, 5, 10 — день 1).
+**Spec:** `docs/specs/2026-10-14-laravel-k8s-aws-design.md` (секції 4.1, 5, 6, 10 — день 1).
 Терміни: `docs/specs/glossary.md`.
 
 ## Global Constraints
 
-- Регіон AWS: `eu-central-1` (Франкфурт).
-- AWS CLI profile: `pet`.
-- Root-акаунт: MFA увімкнено, для щоденної роботи не використовується.
-- AWS Budgets: alerts на $10 та $20.
-- AWS access keys ніколи не потрапляють у Git (лише `~/.aws/credentials`).
+- Тип акаунту: новий досвід AWS (`https://settings.aws.com`). Root user та IAM users для
+  консолі немає.
+- Регіон AWS: `eu-north-1` (Стокгольм). Його призначив AWS, змінити не можна.
+- План: Free, кредити $100 до 2027-04-14.
+- Кнопку "Activate advanced features" не натискати. Дія незворотна.
+- AWS CLI profile: `pet`. Доступ лише через `aws login`, постійних access keys немає.
 - Ресурс API: `notes`, поля `title` (string, max 255, required) та `body` (text, nullable).
 - Усі відповіді `/api/*` — JSON, навіть без заголовка `Accept: application/json`.
 - Застосунок живе в `app/`. Команди `php artisan`, `composer` та `pest` запускаються з `app/`.
@@ -41,102 +42,80 @@ Laravel API `notes` (CRUD) з зеленими Pest-тестами.
 
 ---
 
-### Task 1: AWS-акаунт та безпека root (вручну)
+### Task 1: Безпека акаунту та Budgets (вручну)
 
-**Files:** немає (лише консоль AWS).
+**Files:** немає (лише браузер).
 
 **Interfaces:**
-- Produces: AWS-акаунт з Account ID, email-alerts від Budgets.
+- Produces: Account ID, Builder ID з MFA, бюджет `pet-usage` з email-alert.
 
-- [ ] **Step 1: Зареєструйте акаунт**
+Довідка: ваш акаунт створено в "новому досвіді AWS" (з вересня 2026 року). Root user та
+IAM users для консолі в ньому немає. Налаштування акаунту живуть у `https://settings.aws.com`.
+Деталі: spec, секція 5.
 
-Відкрийте https://aws.amazon.com/ і натисніть "Create an AWS Account".
-Для root використовуйте особистий email, а не робочий. Цей акаунт лишиться у вас після
-зміни роботи.
+- [x] **Step 1: Зареєструйте акаунт**
 
-Під час вибору плану прочитайте умови "Free plan" та "Paid plan".
-- Якщо ви обрали Free plan, запишіть, які сервіси він обмежує.
-- Якщо EKS недоступний на Free plan, в день 9 ви перейдете на Paid plan. Кредити
-  при цьому лишаються.
+Виконано. Регіон `eu-north-1`, Free plan, кредити $100.
 
-- [ ] **Step 2: Увімкніть MFA для root**
+- [ ] **Step 2: Запишіть Account ID**
 
-Консоль → правий верхній кут (ім'я акаунту) → Security credentials → Multi-factor
-authentication (MFA) → Assign MFA device → Authenticator app.
+`https://settings.aws.com` → Project → Overview → Additional Info. Запишіть 12 цифр Account
+ID. Вони знадобляться в Terraform (день 5-6).
 
-Очікуваний результат: у списку MFA є один пристрій.
+- [ ] **Step 3: Увімкніть MFA для Builder ID**
 
-- [ ] **Step 3: Дозвольте IAM-користувачам бачити Billing**
+`https://settings.aws.com` → Security (або ваш профіль) → Multi-factor authentication →
+додайте Authenticator app або passkey.
 
-Консоль → Account → "IAM user and role access to Billing information" → Edit → Activate.
+Причина: Builder ID — єдиний вхід у ваш акаунт. Без MFA вкрадений пароль дає повний доступ.
 
-Причина: без цього IAM-користувач не бачить витрати, і вам доведеться входити як root.
+Очікуваний результат: у списку MFA є щонайменше один пристрій.
 
-- [ ] **Step 4: Створіть бюджет**
+- [ ] **Step 4: Створіть бюджет, який рахує витрати без кредитів**
 
-Консоль → Billing and Cost Management → Budgets → Create budget → "Use a template" →
-"Monthly cost budget".
-- Budget name: `pet-monthly`
-- Budgeted amount: `20`
-- Email recipients: ваш email
+На Free plan AWS не списує гроші з картки. Але кредити закінчуються, і тоді ресурси
+зупиняються. Бюджет показує, як швидко "горять" кредити.
 
-Після створення відкрийте бюджет → Alerts → Edit. Налаштуйте три alerts:
+Відкрийте Billing and Cost Management (посилання є в `settings.aws.com` → Billing, або
+знайдіть "Budgets" у пошуку консолі) → Budgets → Create budget → **Customize (advanced)** →
+Cost budget.
+- Budget name: `pet-usage`
+- Period: Monthly
+- Budgeted amount: `10`
+- Budget scope → Advanced options → Charge types: **зніміть галочки `Credits` та `Refunds`**.
 
-| Threshold | Trigger    |
-|-----------|------------|
-| 50% ($10) | Actual     |
-| 100% ($20)| Actual     |
-| 100% ($20)| Forecasted |
+**Не пропускайте крок з `Credits`.** Якщо кредити враховані, витрати в бюджеті завжди
+дорівнюють $0, і alert ніколи не спрацює.
 
-Очікуваний результат: бюджет `pet-monthly` має 3 alerts.
+Alerts:
 
-- [ ] **Step 5: Вийдіть з root**
+| Threshold  | Trigger    |
+|------------|------------|
+| 50% ($5)   | Actual     |
+| 100% ($10) | Actual     |
 
-Далі ви працюєте лише як IAM-користувач (Task 2).
+Email recipients: ваш email.
+
+Очікуваний результат: бюджет `pet-usage` має 2 alerts.
 
 ---
 
-### Task 2: IAM-користувач та AWS CLI (вручну)
+### Task 2: AWS CLI через `aws login` (вручну)
 
 **Files:**
-- Create: `~/.aws/config`, `~/.aws/credentials` (поза репозиторієм)
+- Create: `~/.aws/config` (поза репозиторієм)
 - Modify: `~/.zshrc`
 
 **Interfaces:**
-- Consumes: AWS-акаунт з Task 1.
-- Produces: CLI profile `pet`. Команда `aws sts get-caller-identity --profile pet` повертає ARN
-  `arn:aws:iam::<account-id>:user/tvard-admin`.
+- Consumes: акаунт з Task 1.
+- Produces: CLI profile `pet` з регіоном `eu-north-1`. Команда `aws sts get-caller-identity`
+  повертає ваш Account ID.
 
-- [ ] **Step 1: Створіть групу та користувача**
+Чому без access keys: `aws login` бере тимчасові ключі з вашої сесії в браузері. Ключі
+діють кілька годин, тому вкрасти їх з диска майже нема сенсу. Це безпечніше за постійні
+access keys з класичного підходу.
 
-Увійдіть як root востаннє. IAM → User groups → Create group:
-- Group name: `admins`
-- Permissions: `AdministratorAccess`
-
-IAM → Users → Create user:
-- User name: `tvard-admin`
-- "Provide user access to the AWS Management Console": так, custom password
-- Add to group: `admins`
-
-Запишіть "Console sign-in URL" (`https://<account-id>.signin.aws.amazon.com/console`).
-
-Примітка для співбесіди: `AdministratorAccess` порушує least privilege. Для одного
-адміністратора pet project це прийнятно. У команді права дають через ролі, а постійних
-IAM users з ключами уникають.
-
-- [ ] **Step 2: Увійдіть як `tvard-admin` та увімкніть MFA**
-
-Увійдіть через Console sign-in URL. Security credentials → Assign MFA device.
-
-- [ ] **Step 3: Створіть access key для CLI**
-
-Security credentials → Access keys → Create access key → "Command Line Interface (CLI)".
-Скопіюйте Access key ID та Secret access key. Secret показується лише один раз.
-
-**Не вставляйте ключі в чати, нотатки або файли репозиторію.** Якщо ключ потрапив у
-публічне місце, одразу зробіть його Deactivate та Delete.
-
-- [ ] **Step 4: Встановіть AWS CLI**
+- [ ] **Step 1: Встановіть AWS CLI**
 
 ```bash
 sudo pacman -S aws-cli-v2
@@ -145,37 +124,48 @@ aws --version
 
 Очікуваний результат: `aws-cli/2.x.x ...`
 
-- [ ] **Step 5: Налаштуйте profile `pet`**
+- [ ] **Step 2: Увійдіть через браузер**
 
 ```bash
-aws configure --profile pet
-# AWS Access Key ID: <ваш key id>
-# AWS Secret Access Key: <ваш secret>
-# Default region name: eu-central-1
-# Default output format: json
-chmod 600 ~/.aws/credentials
+aws configure set region eu-north-1 --profile pet
+aws configure set output json --profile pet
+aws login --profile pet
+```
+
+CLI відкриває браузер. Увійдіть через Builder ID та підтвердіть доступ.
+
+- [ ] **Step 3: Зробіть `pet` профілем за замовчуванням**
+
+```bash
 echo 'export AWS_PROFILE=pet' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-- [ ] **Step 6: Перевірте доступ**
+- [ ] **Step 4: Перевірте доступ**
 
 ```bash
 aws sts get-caller-identity
+aws configure get region
 ```
 
 Очікуваний результат:
+- `Account` дорівнює Account ID з Task 1, Step 2;
+- `Arn` має вигляд `arn:aws:sts::<account-id>:assumed-role/...`;
+- регіон: `eu-north-1`.
 
-```json
-{
-    "UserId": "AIDA...",
-    "Account": "<12 цифр>",
-    "Arn": "arn:aws:iam::<12 цифр>:user/tvard-admin"
-}
+`assumed-role` означає, що ви працюєте через IAM role з тимчасовими ключами, а не через
+IAM user. Це гарна деталь для співбесіди.
+
+Якщо сесія закінчилася (`ExpiredToken`), виконайте `aws login --profile pet` ще раз.
+
+- [ ] **Step 5: Перевірте, що на диску немає постійних ключів**
+
+```bash
+ls -la ~/.aws/
+grep -c 'aws_secret_access_key' ~/.aws/credentials 2>/dev/null || echo "no static keys"
 ```
 
-Якщо в `Arn` є `:root`, ви створили ключ для root. Видаліть цей ключ і повторіть Step 3 як
-`tvard-admin`.
+Очікуваний результат: `no static keys` (або `0`).
 
 ---
 
@@ -784,6 +774,8 @@ Answers in my own words. One section per day.
 6. Where do you keep AWS keys? What do you do if a key leaked to a public repository?
 7. What is the difference between long-term access keys and temporary credentials (STS)?
 8. Why does CI (GitHub Actions) use an IAM role with OIDC instead of access keys?
+9. How does the new AWS experience (2026) differ from a classic account: Builder ID,
+   projects, spend limits, `aws login`? Why do companies still use the classic model?
 ```
 
 - [ ] **Step 2: Напишіть відповіді своїми словами**
@@ -809,8 +801,8 @@ git push
 
 ## Результат дня 1
 
-- [ ] `aws sts get-caller-identity` показує `user/tvard-admin`, а не root.
-- [ ] Бюджет `pet-monthly` має 3 alerts.
+- [ ] `aws sts get-caller-identity` показує ваш Account ID та `assumed-role`, регіон `eu-north-1`.
+- [ ] Builder ID має MFA, бюджет `pet-usage` (без кредитів) має 2 alerts.
 - [ ] `https://github.com/Tvardick/laravel-k8s-aws` публічний і має spec, глосарій, README та `app/`.
 - [ ] `./vendor/bin/pest` у `app/` показує 13 passed.
-- [ ] `docs/interview-notes.md` має відповіді на 8 питань про IAM.
+- [ ] `docs/interview-notes.md` має відповіді на 9 питань про IAM.

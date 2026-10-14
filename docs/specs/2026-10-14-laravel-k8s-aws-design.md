@@ -17,7 +17,7 @@ Success criteria:
 - The author can explain the architecture in 10 minutes.
 - The author can answer typical interview questions about VPC, IAM, Pods,
   Deployments, Services, Ingress, Helm, GitOps and Terraform state.
-- AWS cost for the whole project is under $20 (target: covered by free tier credits).
+- AWS cost for the whole project is under $20, covered by the $100 Free plan credits.
 
 Out of scope:
 
@@ -132,9 +132,17 @@ Three separate root modules with separate state files:
 
 ## 5. Security
 
-- Root account: MFA on, not used for daily work.
-- Daily work: IAM user (or IAM Identity Center) with MFA.
-- AWS Budgets: alerts at $10 and $20.
+- Account type: "new AWS experience" (sign-up since September 2026). There is no root
+  user and no console IAM users. Sign-in uses AWS Builder ID. Account settings live in
+  `https://settings.aws.com`.
+- Region: `eu-north-1` (Stockholm). AWS assigns it by country, it cannot be changed.
+- Builder ID: MFA on.
+- CLI access: `aws login` (temporary credentials from the console session). No
+  long-term access keys on disk.
+- Do not activate "advanced features" unless a required service is blocked. Activation
+  is irreversible and removes the spend limit.
+- If a tool cannot use `aws login` credentials (for example, Terraform), export them
+  for the shell session: `eval "$(aws configure export-credentials --format env)"`.
 - `.gitignore` blocks `*.tfstate`, `*.tfvars`, `.env`, `kubeconfig*`.
 - Container runs as non-root.
 - RDS is in private subnets. Its security group allows port 5432 only from EKS nodes.
@@ -142,6 +150,10 @@ Three separate root modules with separate state files:
 
 ## 6. Cost control
 
+- Plan: Free plan with $100 credits, valid until 2027-04-14. On the Free plan AWS does
+  not charge the card. When credits end, resources stop. EKS and RDS are available on
+  the Free plan.
+- AWS Budgets: alert at $10 of usage, to see credit burn early.
 - Week 1: VPC without NAT, ECR, S3. Expected cost: near $0.
 - Days 9-10: EKS control plane (~$0.10/h), 2 small nodes, RDS `db.t4g.micro`,
   one NAT Gateway (~$0.045/h + traffic).
@@ -192,7 +204,7 @@ Each day: ~6 hours of practice and 1 hour of theory. Theory answers go to
 
 | Day | Practice | Theory | Done when |
 |-----|----------|--------|-----------|
-| 1 | AWS account security, Budgets, `aws cli`. GitHub repo. Laravel `notes` API + Pest | IAM: users, roles, policies, least privilege | `aws sts get-caller-identity` works, tests pass |
+| 1 | AWS account security (Builder ID MFA), Budgets, `aws login`. GitHub repo. Laravel `notes` API + Pest | IAM: users, roles, policies, least privilege | `aws sts get-caller-identity` works, tests pass |
 | 2 | Dockerfile, docker-compose, `/health`, `/ready`. `ci.yml` | Docker layers, image size, non-root | CI is green on a PR |
 | 3 | `kind` cluster. Raw manifests: Deployment, Service, ConfigMap, Secret, probes, PostgreSQL StatefulSet | Pod lifecycle, probes, Deployment vs StatefulSet | API answers via `kubectl port-forward` |
 | 4 | Traefik Ingress, migration Job, requests/limits, metrics-server, HPA, rolling update | Service types, Ingress, `CrashLoopBackOff`, `OOMKilled`, Pod debugging | API works via Ingress, HPA scales |
