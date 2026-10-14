@@ -2,6 +2,7 @@
 
 Date: 2026-10-14
 Status: Draft (waiting for review)
+Glossary: [glossary.md](glossary.md) (Ukrainian, explains every technology name used here)
 
 ## 1. Goal
 
