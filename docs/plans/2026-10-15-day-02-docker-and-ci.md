@@ -62,15 +62,18 @@ PostgreSQL 17, GitHub Actions, Pint, Pest 5, Laravel 13.
   - `GET /ready` → 200 `{"status":"ok"}`, якщо `select 1` у БД працює.
     Інакше → 503 `{"status":"unavailable"}`.
 
-- [ ] **Step 1: Закомітьте нотатки дня 1 та створіть гілку**
+- [ ] **Step 1: Опублікуйте документацію та створіть гілку**
+
+Нотатки дня 1 вже закомічені (`bd591b4`). Локальний `main` також має коміт з цим планом.
 
 ```bash
 cd ~/laravel-k8s-aws
-git add docs/interview-notes.md
-git commit -m "docs: add day 1 interview notes (Q1-Q3)"
+git status --short
 git push
 git switch -c day-02-docker
 ```
+
+Очікуваний результат: `git status` порожній, `git push` публікує коміти в `main`.
 
 - [ ] **Step 2: Напишіть тести**
 
