@@ -199,8 +199,17 @@ laravel-k8s-aws/
 
 ## 10. Day-by-day plan
 
-Each day: ~6 hours of practice and 1 hour of theory. Theory answers go to
+Each day: ~6 hours of practice, then theory (max 1.5 hours). Theory answers go to
 `docs/interview-notes.md`.
+
+Theory format (agreed on 2026-10-15):
+
+1. Claude explains the mechanism (5-10 lines, a scheme, an example from this project).
+2. The author asks follow-up questions in the same session.
+3. The author writes 3-5 sentences in own words. Deep details go to a "Deeper" subsection.
+4. Claude reviews once. Time-box: 25 minutes per question.
+
+A question moves to the day when the author practices the related technology.
 
 | Day | Practice | Theory | Done when |
 |-----|----------|--------|-----------|
@@ -209,7 +218,7 @@ Each day: ~6 hours of practice and 1 hour of theory. Theory answers go to
 | 3 | `kind` cluster. Raw manifests: Deployment, Service, ConfigMap, Secret, probes, PostgreSQL StatefulSet | Pod lifecycle, probes, Deployment vs StatefulSet | API answers via `kubectl port-forward` |
 | 4 | Traefik Ingress, migration Job, requests/limits, metrics-server, HPA, rolling update | Service types, Ingress, `CrashLoopBackOff`, `OOMKilled`, Pod debugging | API works via Ingress, HPA scales |
 | 5 | Helm chart from the manifests. Terraform `bootstrap/` | Helm releases and rollback. Terraform state and locking | One `helm install` starts everything |
-| 6 | Terraform `base/`. `release.yml` pushes to ECR via OIDC | VPC, subnets, route tables, IGW vs NAT, SG vs NACL | Image is in ECR, no AWS keys in GitHub |
+| 6 | Terraform `base/`. `release.yml` pushes to ECR via OIDC | VPC, subnets, route tables, IGW vs NAT, SG vs NACL. Day 1 backlog: Q4 least privilege, Q7 STS, Q8 OIDC | Image is in ECR, no AWS keys in GitHub |
 | 7 | ArgoCD locally, PreSync migration hook, CI updates image tag | GitOps, push vs pull deploy | Merge to main reaches the cluster |
 | 8 | kube-prometheus-stack, ServiceMonitor, alert, dashboard. Terraform `eks/` code, `plan` only | kube-state-metrics, what to monitor in K8s | Dashboard and alert work, `plan` is clean |
 | 9 | `apply` `eks/`. Install Traefik, ArgoCD. Deploy with `values-eks.yaml`. Fix kind vs EKS differences | EKS architecture, managed nodes vs Fargate, Pod Identity / IRSA | API works on EKS via a public load balancer |

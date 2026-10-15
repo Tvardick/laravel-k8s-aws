@@ -770,11 +770,11 @@ Answers in my own words. One section per day.
 1. What is the difference between an IAM user, an IAM group and an IAM role?
 2. What is an IAM policy? What are Effect, Action, Resource and Condition?
 3. What happens if one policy says Allow and another says Deny for the same action?
-4. What is the principle of least privilege? Give an example from this project.
+4. (moved to day 6) What is the principle of least privilege? Give an example from this project.
 5. Why must you not use the root account for daily work?
 6. Where do you keep AWS keys? What do you do if a key leaked to a public repository?
-7. What is the difference between long-term access keys and temporary credentials (STS)?
-8. Why does CI (GitHub Actions) use an IAM role with OIDC instead of access keys?
+7. (moved to day 6) What is the difference between long-term access keys and temporary credentials (STS)?
+8. (moved to day 6) Why does CI (GitHub Actions) use an IAM role with OIDC instead of access keys?
 9. How does the new AWS experience (2026) differ from a classic account: Builder ID,
    projects, spend limits, `aws login`? Why do companies still use the classic model?
 ```
@@ -786,8 +786,12 @@ Answers in my own words. One section per day.
 - https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html
 - `docs/specs/glossary.md`, секція 2
 
-Пишіть коротко, 2-4 речення на питання. Ви можете писати українською. Якщо ви хочете
-тренувати англійську для співбесід, пишіть англійською.
+Формат (погоджено 2026-10-15, spec секція 10): Claude пояснює механіку, ви уточнюєте,
+потім пишете 3-5 речень своїми словами, Claude робить один review. Не більше 25 хвилин на
+питання. Глибокі деталі йдуть у підрозділ "Deeper".
+
+Q4, Q7 та Q8 перенесено на день 6 (IAM role для GitHub Actions). Q5, Q6 та Q9 виконуються
+в кінці дня 2 (див. план дня 2, Task 5).
 
 - [ ] **Step 3: Закомітьте та опублікуйте**
 
@@ -806,4 +810,4 @@ git push
 - [ ] Builder ID має MFA, бюджет `pet-usage` (без кредитів) має 2 alerts.
 - [ ] `https://github.com/Tvardick/laravel-k8s-aws` публічний і має spec, глосарій, README та `app/`.
 - [ ] `./vendor/bin/pest` у `app/` показує 13 passed.
-- [ ] `docs/interview-notes.md` має відповіді на 9 питань про IAM.
+- [ ] `docs/interview-notes.md` має відповіді на Q1-Q3 (Q5, Q6, Q9 — день 2, Q4, Q7, Q8 — день 6).
