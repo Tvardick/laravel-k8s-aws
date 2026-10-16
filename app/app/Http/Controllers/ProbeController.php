@@ -21,6 +21,7 @@ class ProbeController extends Controller
         } catch (Throwable $e) {
             // Details go to the log only. The response must not expose hosts or credentials.
             Log::warning('Readiness check failed', ['error' => $e->getMessage()]);
+
             return response()->json(['status' => 'unavailable'], 503);
         }
 
