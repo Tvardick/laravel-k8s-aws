@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Http\Requests\StoreNoteRequest;
 use App\Http\Requests\UpdateNoteRequest;
 use App\Http\Resources\NoteResource;
 use App\Models\Note;
-use Illuminate\Http\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
 class NoteController extends Controller
 {
@@ -26,6 +25,7 @@ class NoteController extends Controller
     public function store(StoreNoteRequest $request): NoteResource
     {
         $note = Note::create($request->validated());
+
         return new NoteResource($note);
     }
 
@@ -43,6 +43,7 @@ class NoteController extends Controller
     public function update(UpdateNoteRequest $request, Note $note): NoteResource
     {
         $note->update($request->validated());
+
         return new NoteResource($note);
     }
 
@@ -52,6 +53,7 @@ class NoteController extends Controller
     public function destroy(Note $note): Response
     {
         $note->delete();
+
         return response()->noContent();
     }
 }

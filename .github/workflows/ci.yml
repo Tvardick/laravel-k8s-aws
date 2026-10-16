@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+
+# Least privilege for the GITHUB_TOKEN: CI only reads the code.
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the old run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    # Tests run on PostgreSQL, the same engine as in Docker and RDS.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: notes_test
+          POSTGRES_USER: notes
+          POSTGRES_PASSWORD: notes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U notes -d notes_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Real env vars win over the <env> values in phpunit.xml.
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: notes_test
+      DB_USERNAME: notes
+      DB_PASSWORD: notes
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: pdo_pgsql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Code style (Pint)
+        run: vendor/bin/pint --test
+
+      - name: Tests (Pest on PostgreSQL)
+        run: vendor/bin/pest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          push: false
+          tags: notes-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
