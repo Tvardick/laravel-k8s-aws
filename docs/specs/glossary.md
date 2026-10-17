@@ -71,11 +71,14 @@
 **Root account**
 - Що це: головний користувач AWS-акаунту (email, з яким ви реєструвалися). Він має
   необмежені права, і їх не можна обмежити.
-- У проєкті: увімкнути MFA та більше не використовувати для щоденної роботи.
+- У класичному акаунті: увімкнути MFA та більше не використовувати для щоденної роботи.
+- У проєкті: root немає. Новий досвід AWS (з вересня 2026) прибрав root та IAM users.
+  Ви входите через Builder ID і працюєте через role `AccountFullAccessRole` з
+  тимчасовими credentials (`get-caller-identity` показує `assumed-role`).
 
 **MFA (Multi-Factor Authentication)**
 - Що це: другий фактор входу. Наприклад, код з Google Authenticator.
-- У проєкті: обов'язково для root та IAM-користувача.
+- У проєкті: обов'язково для Builder ID (єдиний вхід в акаунт).
 
 **IAM (Identity and Access Management)**
 - Що це: сервіс AWS, який керує доступом: хто може що робити з якими ресурсами.
@@ -85,7 +88,8 @@
     роль не має. Її беруть сервіси, CI або інші акаунти.
   - **IAM policy** — JSON-документ з правилами: `Allow`/`Deny`, `Action`, `Resource`.
 - **Least privilege** — принцип: давати лише ті права, які реально потрібні.
-- У проєкті: IAM user для вас, IAM role для GitHub Actions.
+- У проєкті: IAM users немає. Ви працюєте через role з Builder ID, GitHub Actions —
+  через IAM role з OIDC (день 6).
 - Аналогія: користувачі та групи в Linux + `sudoers`, але для API-викликів.
 
 **IAM Identity Center**
