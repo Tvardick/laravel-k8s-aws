@@ -199,17 +199,30 @@ laravel-k8s-aws/
 
 ## 10. Day-by-day plan
 
-Each day: ~6 hours of practice, then theory (max 1.5 hours). Theory answers go to
+Each day: ~6 hours of practice, then theory (max 100 minutes). Theory answers go to
 `docs/interview-notes.md`.
 
-Theory format (agreed on 2026-10-15):
+Theory format (agreed on 2026-10-15, limits changed on 2026-10-21):
 
 1. Claude explains the mechanism (5-10 lines, a scheme, an example from this project).
 2. The author asks follow-up questions in the same session.
-3. The author writes 3-5 sentences in own words. Deep details go to a "Deeper" subsection.
-4. Claude reviews once. Time-box: 25 minutes per question.
+3. The author writes 3-5 sentences in own words: what the author says aloud in 1 minute.
+   Deep details go to a "Deeper" subsection, with no time limit.
+4. Claude reviews once.
+
+Limits per day: max 2 compound questions, both in format A, 50 minutes each. There are
+no short questions without an explanation.
+
+Why:
+
+- on day 3 one compound question (concept + drill + production practice) took ~50
+  minutes, not the planned 25;
+- the day 3 short question (Secret) showed that every question needs an explanation and
+  a discussion first.
 
 A question moves to the day when the author practices the related technology.
+Topics that do not fit into the day limits go to the "Theory backlog" list below.
+The author studies the backlog after the 2-week plan.
 
 | Day | Practice | Theory | Done when |
 |-----|----------|--------|-----------|
@@ -222,7 +235,7 @@ A question moves to the day when the author practices the related technology.
 | 7 | ArgoCD locally, PreSync migration hook, CI updates image tag | GitOps, push vs pull deploy | Merge to main reaches the cluster |
 | 8 | kube-prometheus-stack, ServiceMonitor, alert, dashboard. Terraform `eks/` code, `plan` only | kube-state-metrics, what to monitor in K8s | Dashboard and alert work, `plan` is clean |
 | 9 | `apply` `eks/`. Install Traefik, ArgoCD. Deploy with `values-eks.yaml`. Fix kind vs EKS differences | EKS architecture, managed nodes vs Fargate, Pod Identity / IRSA | API works on EKS via a public load balancer |
-| 10 | Monitoring on EKS. Failure drills. Screenshots, README, diagram. `destroy` `eks/`, check Billing | AWS cost model, review of all notes | Project done, nothing is running |
+| 10 | Monitoring on EKS. Failure drills. Screenshots, README, diagram. `destroy` `eks/`, check Billing | AWS cost model, review of all notes. Collect the theory backlog | Project done, nothing is running |
 | 11-12 | Buffer. CV update. Mock interview | — | CV has a "Projects" section |
 
 If time runs out, cut in this order:
@@ -231,3 +244,11 @@ If time runs out, cut in this order:
 2. ArgoCD is replaced by `helm upgrade` from CI.
 
 Do not cut EKS or Terraform. Job offers ask for them.
+
+### Theory backlog
+
+Topics for study after the 2-week plan. Format A applies.
+
+| Added | Topic | Context |
+|-------|-------|---------|
+| Day 3 | Stateless application in Kubernetes: where cache, sessions/auth and user files live when a pod has no persistent storage | Discussed during day 3 Q3. Key points: Redis for cache and sessions, tokens (Sanctum/JWT) for a REST API, S3 with presigned URLs for files, EFS (`ReadWriteMany`) for legacy, why not sticky sessions and not a PVC on a Deployment |
