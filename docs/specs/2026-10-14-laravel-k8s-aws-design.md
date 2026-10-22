@@ -252,3 +252,6 @@ Topics for study after the 2-week plan. Format A applies.
 | Added | Topic | Context |
 |-------|-------|---------|
 | Day 3 | Stateless application in Kubernetes: where cache, sessions/auth and user files live when a pod has no persistent storage | Discussed during day 3 Q3. Key points: Redis for cache and sessions, tokens (Sanctum/JWT) for a REST API, S3 with presigned URLs for files, EFS (`ReadWriteMany`) for legacy, why not sticky sessions and not a PVC on a Deployment |
+| Day 4 | Rolling update strategy and graceful shutdown | Practiced in day 4 Task 4. Key points: `maxSurge`/`maxUnavailable` defaults, readiness gates a rollout, image `STOPSIGNAL` vs SIGTERM, `preStop` and endpoint propagation (why Traefik returned 502 without `preStop`), `terminationGracePeriodSeconds` |
+| Day 4 | Resource model and HPA | Practiced in day 4 Task 3. Key points: requests vs limits, QoS classes (Guaranteed/Burstable/BestEffort), CPU throttling, why HPA needs requests, scale-down stabilization window |
+| Day 4 | Kubernetes Jobs | Practiced in day 4 Task 2. Key points: `restartPolicy`, `backoffLimit`, immutable template, migrations before a rollout (Helm hook day 5, ArgoCD PreSync day 7) |

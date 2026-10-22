@@ -125,12 +125,12 @@ A. IAM Policy — це JSON-документ, який описує дозвол
         Далі паралельно запускаються кілька процесів EndpointSlice Controller прибирає цей pod з endpoint Service
         і на нього перестають маршрутизуватися запити. Та kubelet на ноді в якому запущений pod робить кілька речей:
             - якщо є preStop hook запускає його
-            - відправляє SIGTERM процесу з id 1 в кожному контейнері
+            - відправляє STOPSIGNAL в кожний контейнер
             - чекає terminationGracePeriodSeconds, default це 30 секунд
             - якщо процес ще працює, надсилає SIGKILL
             - повідомляє control plane що pod видалено -> api видаляє об'єкт
         Паралельно працює Deployment/ReplicaSet якщо в replicaSet стоїть pod більше ніж є на даний момент, тоді створюють новий з новим ім'ям.
-        Чому видалення в Task 4, Step 3 зайняло 30 секунд? Все через базовий образ serversideup/php, його процес з id 1 це init.sh який не обробляє SIGTERM тому після очікування terminationGracePeriodSeconds процес примусово вбивається через SIGKILL.
+        Чому видалення в Task 4, Step 3 зайняло 30 секунд? Kubelet надсилає сиграл в conteinerd про зупинку контейнерів. Conteinerd надсилає STOPSIGNAL, а якщо контейнер його не знає тоді SIGTERM, базовий образ serversideup/php оброляє STOPSIGNAL та надсилає SIGQUIT в процес з id 1 це /init який не обробляє SIGQUIT тому після очікування terminationGracePeriodSeconds, kubelet надсилає SIGKILL.
 2. When do you need a startupProbe in addition to liveness and readiness?
    What would happen in Task 4, Step 2 if /health checked the database?
    A. Для чого потрібен startupProbe? Якщо застосунок має довгий або непередбачуваний час старту. Наприклад
