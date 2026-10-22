@@ -277,6 +277,19 @@
   контейнері.
 - У проєкті: базовий образ для Dockerfile.
 
+**s6-overlay / `/init`**
+- Що це: init-система в образі `serversideup/php`. Процес `/init` працює як PID 1, запускає
+  nginx та php-fpm і стежить за ними.
+- У проєкті: `/init` не завершує роботу за сигналом SIGQUIT. Тому в дні 3 видалення pod
+  тривало 30 секунд (див. STOPSIGNAL).
+
+**STOPSIGNAL**
+- Що це: інструкція Dockerfile. Вона задає сигнал, яким Docker або containerd зупиняє
+  контейнер. Якщо інструкції немає, це SIGTERM.
+- У проєкті: базовий образ задає `SIGQUIT`. `app/Dockerfile` перевизначає його на
+  `STOPSIGNAL SIGTERM` (день 4). Pod завершується за ~3 секунди замість 30.
+- Перевірка: `docker image inspect <image> --format '{{.Config.StopSignal}}'`.
+
 **Multi-stage build**
 - Що це: Dockerfile з кількома `FROM`. Перший етап встановлює залежності (composer).
   Фінальний етап копіює лише результат.
@@ -298,6 +311,9 @@
 - Що це: тег — версія образу (`notes-api:a1b2c3d`). Commit SHA — унікальний ID коміту в Git.
 - У проєкті: тег образу = SHA коміту. Тому завжди видно, який код працює в кластері.
   Тег `latest` не використовуємо.
+- Локально (дні 3-8): тег `notes-api:local` не змінюється. Після `docker build` та
+  `kind load` маніфест той самий, тому `kubectl apply` pods не оновлює. Потрібен
+  `kubectl rollout restart`.
 
 ---
 
@@ -310,8 +326,51 @@
 
 **Cluster / Control plane / Node**
 - **Cluster** — уся система Kubernetes.
-- **Control plane** — "мозок" кластера: API server, scheduler, etcd (база стану).
+- **Control plane** — "мозок" кластера: API server, scheduler, controller-manager, etcd
+  (база стану).
 - **Node** — сервер, на якому працюють контейнери.
+
+**API server / etcd**
+- **API server** — єдина точка входу в кластер. Він перевіряє запит (автентифікація,
+  RBAC, валідація) і зберігає об'єкт в etcd. Жоден інший компонент не звертається до etcd
+  напряму.
+- **etcd** — key-value база, де зберігається стан усіх об'єктів кластера.
+- У проєкті: кожна команда `kubectl` — це HTTP-запит до API server. Перевірка:
+  `kubectl get pods -v=6`.
+
+**Scheduler / Controller**
+- **Scheduler** — вибирає node для нового pod (поле `spec.nodeName`) за ресурсами,
+  affinity та taints.
+- **Controller** — цикл, який порівнює бажаний стан з реальним і виправляє різницю.
+  Приклади: ReplicaSet controller, Deployment controller, EndpointSlice controller.
+- **Watch** — компоненти не надсилають дані один одному. Кожен стежить за API server і
+  реагує на зміни. Це головний патерн Kubernetes.
+
+**kubelet**
+- Що це: агент на кожній node (systemd-сервіс, а не pod). Він бачить pods, призначені на
+  його node, і просить container runtime їх запустити.
+- Ще kubelet виконує probes, перезапускає контейнери, зупиняє їх при видаленні pod і
+  звітує API server про стан (`status.phase`, `containerStatuses`).
+- Перевірка в kind: `docker exec notes-control-plane systemctl status kubelet`.
+
+**Container runtime / containerd / CRI**
+- Що це: програма, яка реально запускає контейнери на node. Kubelet спілкується з нею
+  через інтерфейс CRI.
+- У проєкті: containerd всередині node kind. Він не бачить образи вашого Docker, тому
+  потрібен `kind load docker-image`.
+
+**CNI**
+- Що це: мережевий плагін. Він дає кожному pod власну IP-адресу, незалежно від Service.
+- У проєкті: `kindnet` у kind, діапазон pods `10.244.x.x`.
+
+**kube-proxy**
+- Що це: компонент на кожній node. Він пише правила iptables/nftables: ClusterIP Service →
+  один з ready pods.
+- У проєкті: обробляє `notes-api:80`. Traefik його оминає і йде на IP pods напряму.
+
+**CoreDNS**
+- Що це: DNS кластера. Ім'я Service (`notes-api`, `postgres`) перетворюється на IP.
+- Повне ім'я: `<service>.<namespace>.svc.cluster.local`.
 
 **kubectl / kubeconfig**
 - **kubectl** — CLI для роботи з кластером.
@@ -327,13 +386,19 @@
   `monitoring`.
 
 **kind**
-- Що це: Kubernetes IN Docker. Він запускає повний кластер у Docker-контейнерах на
-  вашому ноутбуці.
-- У проєкті: локальний кластер для днів 3-8.
+- Що це: Kubernetes IN Docker. Інструмент, а не дистрибутив. Він запускає звичайний
+  upstream Kubernetes (через `kubeadm`), де кожна node — це Docker-контейнер.
+- У проєкті: локальний кластер `notes` для днів 3-8.
+- Обмеження: NodePort доступний з хоста тільки через `extraPortMappings`, образи треба
+  копіювати через `kind load`, Service типу LoadBalancer залишається в `Pending`, дані PVC
+  зникають разом з кластером.
 
 **k3s**
-- Що це: полегшений дистрибутив Kubernetes для одного сервера або малих кластерів.
+- Що це: окремий дистрибутив Kubernetes (SUSE/Rancher). Один бінарник, SQLite замість etcd
+  за замовчуванням, Traefik та ServiceLB вбудовані. Працює на реальних серверах і підходить
+  для production (edge, малі кластери).
 - У проєкті: відхилений варіант (див. spec, секція 2).
+- Різниця з kind: k3s — production-дистрибутив, kind — інструмент для тестів і розробки.
 
 **Pod**
 - Що це: найменша одиниця в Kubernetes. Він має один або кілька контейнерів зі спільною
@@ -341,11 +406,64 @@
 - Pod — "смертний". Якщо він впав, Kubernetes створює новий з новим IP.
 - Аналогія: один сервіс з `docker-compose.yml`, але з одним або кількома контейнерами.
 
+**Pod phase / стан контейнера / колонка STATUS**
+- **Phase** (`status.phase`) — грубий підсумок для всього pod. 5 значень: `Pending`,
+  `Running`, `Succeeded`, `Failed`, `Unknown`.
+- **Стан контейнера** (`status.containerStatuses[].state`) — `waiting`, `running` або
+  `terminated`, кожен з полем `reason` (`ContainerCreating`, `CrashLoopBackOff`, `Error`,
+  `OOMKilled`).
+- **STATUS** у `kubectl get pods` — не поле API. kubectl обчислює його: `Terminating`, якщо
+  є `deletionTimestamp`, інакше `reason` контейнера, інакше phase.
+- `Pending` триває від запису в etcd до старту контейнерів: очікування scheduler,
+  завантаження образу, init containers.
+
+**Pod conditions**
+- Що це: `PodScheduled`, `Initialized`, `ContainersReady`, `Ready`. Вони показують, на
+  якому етапі pod, точніше за phase.
+
+**Завершення pod: deletionTimestamp / grace period / preStop**
+- `kubectl delete pod` → API server записує `deletionTimestamp`. Phase залишається
+  `Running`, а kubectl показує `Terminating`.
+- Паралельно: EndpointSlice controller прибирає pod з endpoints, а kubelet запускає
+  `preStop` hook.
+- Після `preStop` container runtime надсилає сигнал з `STOPSIGNAL` образу (за
+  замовчуванням SIGTERM).
+- **terminationGracePeriodSeconds** (за замовчуванням 30) — скільки kubelet чекає. Потім
+  SIGKILL.
+- **preStop** — дія перед сигналом зупинки. `lifecycle.preStop.sleep.seconds: 5` дає
+  Traefik і kube-proxy час прибрати pod з маршрутів.
+- У проєкті (день 4): без `preStop` rolling update давав `502`, з `preStop` — 0 помилок.
+
+**Exit codes 137 / 143 / 1**
+- `128 + N` означає, що процес вбито сигналом N. `137` = SIGKILL (9), `143` = SIGTERM (15).
+- `1` — застосунок сам вийшов з помилкою.
+- Хто надіслав SIGKILL, показує `Reason`: `OOMKilled` — ядро Linux (ліміт пам'яті),
+  `Error` — kubelet після grace period.
+
+**Labels / Selector**
+- **Labels** — пари ключ-значення на об'єкті (`app: notes-api`).
+- **Selector** — запит за labels. Deployment знаходить «свої» pods за selector, а Service
+  знаходить pods для трафіку теж за selector. Service не знає про Deployment: зв'язок
+  існує тільки через labels.
+
 **Deployment / ReplicaSet**
 - **Deployment** — описує, скільки копій (replicas) Pod має працювати і з яким образом.
   Він керує оновленнями.
 - **ReplicaSet** — внутрішній об'єкт, який Deployment створює для кожної версії.
 - У проєкті: Laravel API.
+- Pods Deployment взаємозамінні: випадкова назва з hash, нова IP. Новий pod стартує, не
+  чекаючи, поки старий зникне.
+
+**Stateless-застосунок**
+- Що це: pod не зберігає стану, тому його можна вбити будь-коли. Стан живе в зовнішніх
+  сервісах:
+  - кеш і сесії — Redis (в AWS: ElastiCache);
+  - автентифікація REST API — токени (Sanctum у БД або JWT);
+  - файли — S3, клієнт завантажує їх за presigned URL;
+  - логи — stdout/stderr.
+- Чого уникати: файли на диску pod, sticky sessions, PVC `ReadWriteOnce` на Deployment.
+- У проєкті: `SESSION_DRIVER=array`, `CACHE_STORE=array`, `LOG_CHANNEL=stderr`. Детальніше —
+  «Theory backlog» у spec.
 
 **Rolling update / Rollback**
 - **Rolling update** — Deployment замінює старі Pods на нові поступово. Старі Pods
@@ -354,9 +472,13 @@
 - Аналогія: ваш bash-скрипт для zero-downtime deploy з Traefik, але вбудований.
 
 **StatefulSet**
-- Що це: як Deployment, але для сервісів зі станом (БД). Pods мають стабільні імена
-  (`postgres-0`) та власні диски.
-- У проєкті: PostgreSQL у локальному кластері.
+- Що це: як Deployment, але для сервісів зі станом (БД). Гарантії:
+  - стабільна назва pod (`postgres-0`) і DNS-ім'я через headless Service;
+  - окремий PVC для кожного pod з `volumeClaimTemplates`;
+  - не більше одного pod з однією назвою одночасно: новий `postgres-0` стартує тільки
+    після того, як старий зник. Тому два процеси PostgreSQL не пишуть в одні файли.
+- Чого StatefulSet НЕ робить: реплікацію та failover. `replicas: 3` — це 3 незалежні БД.
+- У проєкті: PostgreSQL у локальному кластері. В EKS — RDS.
 
 **PV / PVC / StorageClass**
 - **PersistentVolume (PV)** — реальний диск.
@@ -364,16 +486,37 @@
 - **StorageClass** — правило, як створити диск. У kind — локальна папка, в EKS — EBS `gp3`.
 - Аналогія: Docker volume.
 
-**Service (ClusterIP / NodePort / LoadBalancer)**
+**Access mode / Reclaim policy**
+- **ReadWriteOnce (RWO)** — том підключається до однієї node. Так працює EBS.
+- **ReadWriteMany (RWX)** — том підключається до багатьох nodes одночасно. Приклад: EFS.
+- **Reclaim policy `Delete`** — якщо видалити PVC, PV і дані теж зникнуть. Так налаштовано
+  StorageClass `standard` у kind.
+
+**Service (ClusterIP / NodePort / LoadBalancer / headless)**
 - Що це: стабільна адреса для групи Pods. Pods змінюють IP, а Service ні.
-  - **ClusterIP** — адреса лише всередині кластера (за замовчуванням).
-  - **NodePort** — відкриває порт на кожній node.
-  - **LoadBalancer** — хмара створює зовнішній load balancer.
+  - **ClusterIP** — віртуальна IP-адреса лише всередині кластера (за замовчуванням).
+    kube-proxy розподіляє трафік між ready pods.
+  - **NodePort** — відкриває порт (30000-32767) на кожній node. У проєкті: Traefik у kind
+    (30080/30443).
+  - **LoadBalancer** — хмара створює зовнішній load balancer. У kind залишається в
+    `Pending`. У проєкті: Traefik в EKS.
+  - **Headless** (`clusterIP: None`) — без віртуальної IP. DNS одразу повертає IP pods. З
+    StatefulSet дає ім'я кожному pod: `postgres-0.postgres`.
+- `port` — порт Service, `targetPort` — порт контейнера (можна за іменем, `http`).
 - Аналогія: ім'я сервісу в мережі docker-compose (`db:5432`).
+
+**EndpointSlice**
+- Що це: список IP-адрес ready pods для Service. Його веде EndpointSlice controller за
+  selector Service.
+- У проєкті: Traefik читає EndpointSlices і надсилає запити на IP pods напряму.
+  Перевірка: `kubectl -n notes get endpointslices`.
 
 **Ingress / Ingress controller**
 - **Ingress** — правила HTTP-маршрутизації: "host `api.local` → Service `notes-api`".
 - **Ingress controller** — програма, яка реально виконує ці правила (Traefik).
+- **IngressClass** — зв'язує Ingress з конкретним controller (`ingressClassName:
+  traefik`).
+- У проєкті: `http://notes.localhost` → Service `notes-api`.
 - Аналогія: labels Traefik у docker-compose.
 
 **Traefik**
@@ -391,43 +534,97 @@
 - **ConfigMap** — несекретні налаштування (`APP_ENV`, `DB_HOST`).
 - **Secret** — секретні дані (`DB_PASSWORD`). Вони закодовані в base64, а **не
   зашифровані**. Це типове питання на співбесіді.
+- Захист Secret дають додаткові механізми: RBAC (`get secrets` у namespace), шифрування
+  etcd (в EKS — KMS), зовнішній менеджер секретів.
+- Право `create pods` у namespace фактично дає доступ до всіх Secrets цього namespace.
 - Аналогія: `.env`, розділений на дві частини.
 
-**External Secrets Operator**
-- Що це: компонент, який бере секрети з AWS Secrets Manager і створює з них Kubernetes
-  Secret.
+**External Secrets Operator / Secrets Store CSI Driver**
+- **External Secrets Operator** — бере секрети з AWS Secrets Manager і створює з них
+  Kubernetes Secret.
+- **Secrets Store CSI Driver** — монтує секрет з AWS Secrets Manager у pod як файл.
+- Обидва отримують доступ до AWS через IRSA або Pod Identity, а не через ключі.
 - У проєкті: лише описуємо в README.
+
+**Sealed Secrets / SOPS**
+- Що це: способи зберігати секрети в git у зашифрованому вигляді. Потрібні для GitOps,
+  бо base64 у git — це відкритий текст.
 
 **Job**
 - Що це: Pod, який виконує задачу один раз і завершується.
-- У проєкті: `php artisan migrate`.
+- `restartPolicy: Never` — після помилки Job створює новий pod. `backoffLimit` — скільки
+  спроб, потім статус `Failed`.
+- Template Job незмінний (immutable). Щоб запустити знову — видалити Job і створити.
+- У проєкті: Job `notes-api-migrate` виконує `php artisan migrate --force` (день 4). У
+  дні 5 його запускає Helm hook, у дні 7 — ArgoCD PreSync.
 
 **Liveness / Readiness probe**
 - **Liveness** — "чи процес живий?". Якщо ні, Kubernetes перезапускає контейнер.
 - **Readiness** — "чи готовий приймати трафік?". Якщо ні, Service не шле трафік на Pod,
   але контейнер не перезапускається.
 - У проєкті: `/health` для liveness, `/ready` для readiness.
-- Чому liveness не перевіряє БД: якщо БД впала, рестарт PHP не допоможе. Він лише
-  створить хвилю рестартів.
+- Liveness перезапускає контейнер після `periodSeconds × failureThreshold` (у проєкті
+  10 × 3 = 30 секунд).
+- Чому liveness не перевіряє БД: перезапуск лікує тільки проблеми всередині контейнера.
+  Якщо БД впала, усі pods одночасно потрапляють у `CrashLoopBackOff` (корельована
+  відмова), а після відновлення БД API ще кілька хвилин чекає кінця backoff.
 - Аналогія: `healthcheck` у docker-compose.
+
+**Startup probe**
+- Що це: probe для повільного старту. Поки він не пройшов, liveness і readiness вимкнені.
+  Після першого успіху startup probe більше не запускається.
+- Чому не `initialDelaySeconds`: це фіксована затримка при кожному старті. Startup probe
+  закінчується, щойно застосунок готовий.
+- У проєкті: не потрібен, PHP-FPM стартує за 1-2 секунди.
 
 **Requests / Limits**
 - **Requests** — скільки CPU/RAM Pod гарантовано отримує. Scheduler обирає node за ними.
-- **Limits** — максимум. Якщо Pod перевищив ліміт RAM, Kubernetes вбиває його
-  (`OOMKilled`).
+  HPA рахує відсоток саме від request.
+- **Limits** — максимум. Якщо контейнер перевищив ліміт RAM, ядро Linux вбиває процес
+  (`OOMKilled`, exit code 137). Якщо перевищив ліміт CPU, його гальмують (throttling), а не
+  вбивають.
+- У проєкті: requests `cpu: 100m`, `memory: 128Mi`, limit `memory: 256Mi`, без CPU limit.
+
+**QoS classes**
+- Що це: клас pod за його requests/limits. `Guaranteed` (requests = limits), `Burstable`
+  (є requests), `BestEffort` (немає нічого). При нестачі пам'яті на node kubelet спершу
+  виселяє pods, які використовують більше за свої requests. `BestEffort` pods виселяються
+  першими, бо їхній request дорівнює нулю.
 
 **HPA (Horizontal Pod Autoscaler) / metrics-server**
-- **HPA** — автоматично змінює кількість replicas за навантаженням (наприклад, CPU > 70%).
-- **metrics-server** — збирає CPU/RAM з Pods. Без нього HPA не працює.
+- **HPA** — автоматично змінює кількість replicas за навантаженням (наприклад, CPU > 70%
+  від request).
+- **metrics-server** — збирає CPU/RAM з Pods. Без нього HPA не працює. Він також дає
+  `kubectl top`.
+- Без `requests.cpu` HPA показує `<unknown>` і пише `missing request for cpu`.
+- **Stabilization window** — HPA зменшує кількість pods тільки після 5 хвилин низького
+  навантаження.
+- Якщо є HPA, приберіть `replicas` з Deployment. Інакше кожен `kubectl apply` скидає
+  кількість pods.
 
 **CrashLoopBackOff / OOMKilled**
 - **CrashLoopBackOff** — контейнер падає після старту, і Kubernetes перезапускає його з
-  дедалі більшою паузою.
-- **OOMKilled** — контейнер вбито, бо він перевищив ліміт RAM.
-- Як дебажити: `kubectl describe pod`, `kubectl logs --previous`, `kubectl get events`.
+  дедалі більшою паузою (10 с, 20 с, 40 с... до 5 хвилин). Одразу після падіння STATUS
+  показує `Error` або `OOMKilled`, а `CrashLoopBackOff` з'являється пізніше.
+- **OOMKilled** — контейнер вбито, бо він перевищив ліміт RAM. Логи порожні або обірвані.
+- Як дебажити: `kubectl describe pod` (`Last State`, `Reason`, `Exit Code`),
+  `kubectl logs` та `kubectl logs --previous`, `kubectl get events`.
+
+**ImagePullBackOff / CreateContainerConfigError**
+- **ImagePullBackOff** — kubelet не може завантажити образ (неправильний тег, немає
+  доступу до registry).
+- **CreateContainerConfigError** — контейнер неможливо створити: немає Secret або
+  ConfigMap, або `runAsNonRoot` з нечисловим `USER` в образі (день 3).
 
 **`kubectl port-forward`**
 - Що це: прокидає порт з Pod або Service на ваш ноутбук. Для тестів без Ingress.
+- Навіть для Service він підключається до **одного** pod і не балансує трафік. Якщо цей
+  pod зник, з'єднання обривається (день 3, Task 4).
+
+**`kubectl rollout restart`**
+- Що це: додає в template Deployment анотацію з часом. Template змінився → Deployment
+  робить rolling update.
+- У проєкті: оновлює pods після `kind load` нового образу з тим самим тегом.
 
 **CRD / Operator**
 - **CRD (Custom Resource Definition)** — новий тип об'єкта в Kubernetes. Наприклад,
@@ -472,6 +669,12 @@
 **Release**
 - Що це: встановлений екземпляр chart у кластері. Helm зберігає історію release, тому
   `helm rollback` можливий.
+
+**Repository**
+- Що це: сервер, де лежать чарти. `helm repo add traefik https://traefik.github.io/charts`
+  додає його, `helm repo update` оновлює список версій.
+- У проєкті (день 4): чарти Traefik та metrics-server. Версію завжди фіксуємо через
+  `--version`.
 
 **Команди**
 - `helm lint` — перевіряє chart на помилки.

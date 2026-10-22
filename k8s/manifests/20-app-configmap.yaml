@@ -1,0 +1,18 @@
+# Non-secret settings. Secrets (APP_KEY, DB_PASSWORD) live in the Secret notes-secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notes-api
+  namespace: notes
+data:
+  APP_ENV: production
+  APP_DEBUG: "false"
+  LOG_CHANNEL: stderr
+  SESSION_DRIVER: array
+  CACHE_STORE: array
+  QUEUE_CONNECTION: sync
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_DATABASE: notes
+  DB_USERNAME: notes

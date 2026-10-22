@@ -1,0 +1,15 @@
+# Headless Service (clusterIP: None): gives the StatefulSet pod a stable DNS name
+# postgres-0.postgres.notes.svc.cluster.local. The app connects to "postgres".
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: notes
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
