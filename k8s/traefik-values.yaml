@@ -1,0 +1,9 @@
+# Traefik for the local kind cluster. kind-config.yaml maps 127.0.0.1:80/443 to these NodePorts.
+service:
+  spec:
+    type: NodePort
+ports:
+  web:
+    nodePort: 30080
+  websecure:
+    nodePort: 30443

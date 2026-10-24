@@ -1,0 +1,19 @@
+# Traefik routes http://notes.localhost to the Service notes-api.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notes-api
+  namespace: notes
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: notes.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: notes-api
+                port:
+                  name: http
