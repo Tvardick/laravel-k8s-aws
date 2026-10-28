@@ -35,6 +35,11 @@ spec:
                 name: notes-api
             - secretRef:
                 name: notes-secrets
+               # Wait until Traefik and kube-proxy remove the pod from endpoints, then stop.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           livenessProbe:
             httpGet:
               path: /health
