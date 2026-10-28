@@ -1,0 +1,4 @@
+# kind: kubelet serves a self-signed certificate, metrics-server cannot verify it.
+# Local cluster only. EKS does not need this flag.
+args:
+  - --kubelet-insecure-tls
