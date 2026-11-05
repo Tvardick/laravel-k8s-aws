@@ -21,6 +21,8 @@
 | `docker-compose.yml` описує сервіси      | Kubernetes-маніфести / Helm chart             |
 | `docker compose up -d`                   | `kubectl apply` / `helm install` / ArgoCD sync |
 | Traefik як reverse proxy                 | Traefik як Ingress controller                 |
+| Labels Traefik у `docker-compose.yml`    | Об'єкт Ingress                                |
+| Порт `80:80` у `docker-compose.yml`      | Service `NodePort` / `LoadBalancer` для Traefik |
 | WireGuard + закритий доступ до БД         | VPC + private subnets + Security Groups       |
 | Bitbucket Pipelines                      | GitHub Actions                                |
 | Docker Hub / власний registry            | ECR                                           |
@@ -186,16 +188,44 @@
 - У проєкті: не змінюємо, але це типове питання "SG vs NACL".
 - Аналогія: firewall filter на MikroTik між VLAN-ами.
 
+**L4 / L7**
+- **L4** — балансувальник бачить тільки IP та порт (TCP/UDP). Він пересилає з'єднання і
+  не читає HTTP.
+- **L7** — балансувальник читає HTTP-запит: host, path, headers. Він маршрутизує за цими
+  даними.
+- У проєкті: Traefik уже працює на L7. Тому балансувальнику перед ним достатньо L4.
+
 **Load Balancer (CLB / NLB / ALB)**
-- Що це: розподіляє трафік між кількома цілями. AWS має три типи:
-  - **CLB (Classic)** — застарілий тип.
-  - **NLB (Network)** — рівень L4 (TCP/UDP), дуже швидкий.
-  - **ALB (Application)** — рівень L7 (HTTP), вміє маршрутизувати за шляхом та host.
-- У проєкті: Service типу `LoadBalancer` для Traefik створює load balancer автоматично.
+- Що це: розподіляє трафік між кількома цілями. AWS має три типи (сімейство ELB):
+
+  | | CLB (Classic) | NLB (Network) | ALB (Application) |
+  |---|---|---|---|
+  | Рівень | L4 та простий L7 | L4 (TCP, UDP, TLS) | L7 (HTTP, HTTPS, gRPC) |
+  | Статус | legacy, без нових функцій | сучасний | сучасний |
+  | Маршрутизація за host/path | ні | ні | так |
+  | IP клієнта | втрачається | зберігається | у `X-Forwarded-For` |
+  | Статичний IP | ні | так, один на кожну AZ | ні |
+  | Targets | тільки nodes | nodes або IP pods | nodes, IP pods, Lambda |
+  | Як створити з Kubernetes | Service `LoadBalancer` без annotations | Service `LoadBalancer` + annotation | Ingress з `ingressClassName: alb` |
+
+- Service — це поняття L4. Тому Service типу `LoadBalancer` створює тільки CLB або NLB.
+  ALB з'являється тільки через Ingress.
+- Ціна: погодинна оплата (~$0.02-0.03) + трафік або LCU (одиниця навантаження). Точні
+  ціни залежать від region.
+- У проєкті: Service `LoadBalancer` для Traefik в EKS (день 9). Рекомендований тип — NLB:
+  L7 вже робить Traefik, а NLB зберігає IP клієнта.
+- Видаліть Service `traefik` раніше, ніж виконаєте `terraform destroy`. Балансувальник
+  створив cloud controller, тому Terraform про нього не знає. Балансувальник продовжує
+  коштувати гроші, а його мережеві інтерфейси блокують видалення VPC
+  (`DependencyViolation`).
+- Аналогія: HAProxy перед кількома VPS. NLB — режим `mode tcp`, ALB — режим `mode http`.
 
 **AWS Load Balancer Controller**
-- Що це: компонент у Kubernetes, який створює ALB/NLB з Ingress або Service.
-- У проєкті: не використовуємо. Описуємо як альтернативу.
+- Що це: компонент у Kubernetes, який створює ALB з Ingress або NLB з Service.
+- `target-type: ip` — балансувальник надсилає трафік напряму на IP pods, без NodePort та
+  kube-proxy. Це можливо, бо в EKS pods мають справжні IP з VPC (VPC CNI).
+- Потребує окремий Helm-чарт та IAM role (Pod Identity або IRSA).
+- У проєкті: не використовуємо. Описуємо як production-альтернативу.
 
 ---
 
@@ -288,7 +318,28 @@
   контейнер. Якщо інструкції немає, це SIGTERM.
 - У проєкті: базовий образ задає `SIGQUIT`. `app/Dockerfile` перевизначає його на
   `STOPSIGNAL SIGTERM` (день 4). Pod завершується за ~3 секунди замість 30.
-- Перевірка: `docker image inspect <image> --format '{{.Config.StopSignal}}'`.
+- Перевірка локального образу: `docker image inspect <image> --format '{{.Config.StopSignal}}'`.
+- Перевірка образу в node kind: `crictl inspecti` з полем
+  `{{.info.imageSpec.config.StopSignal}}` (цикл по pods — день 4, Task 4, Step 3).
+- `docker history` або `created_by` може показати кілька `STOPSIGNAL`: кожен шар має
+  свій запис. Діє тільки останній.
+
+**Image ID / manifest digest / index digest**
+- Що це: три різні hash одного образу.
+  - **Config digest (image ID)** — hash конфігурації образу (`Env`, `Cmd`, `StopSignal`).
+  - **Manifest digest** — hash manifest. Manifest описує config та шари для однієї
+    платформи.
+  - **Index digest** — hash списку manifests для різних платформ (`linux/amd64`,
+    `linux/arm64`).
+- `docker image inspect --format '{{.Id}}'`: з containerd image store — index digest, у
+  класичному сховищі — config digest.
+- `imageID` pod — manifest digest. `kind load` імпортує образ з `ctr images import
+  --digests`, тому ім'я виглядає як `import-<дата>@sha256:...`.
+- У проєкті (день 4): локальний `.Id` (`de17...`) ніколи не збігається з `imageID` pod
+  (`3427...`). `docker save` під час `kind load` записує manifest заново. Порівнюйте
+  властивість образу (`StopSignal`), а не hash.
+- Перевірка: `docker image ls --tree <image>`, на node — `crictl images --digests
+  --no-trunc` (колонки `DIGEST` та `IMAGE ID`).
 
 **Multi-stage build**
 - Що це: Dockerfile з кількома `FROM`. Перший етап встановлює залежності (composer).
@@ -361,12 +412,20 @@
 
 **CNI**
 - Що це: мережевий плагін. Він дає кожному pod власну IP-адресу, незалежно від Service.
-- У проєкті: `kindnet` у kind, діапазон pods `10.244.x.x`.
+- У проєкті: `kindnet` у kind, діапазон pods `10.244.x.x`. В EKS — VPC CNI: pods
+  отримують справжні IP з subnets VPC.
 
 **kube-proxy**
-- Що це: компонент на кожній node. Він пише правила iptables/nftables: ClusterIP Service →
-  один з ready pods.
-- У проєкті: обробляє `notes-api:80`. Traefik його оминає і йде на IP pods напряму.
+- Що це: компонент на кожній node. Він читає Services та EndpointSlices і пише правила
+  в ядро Linux (iptables або nftables).
+  - ClusterIP: пакет на `<ClusterIP>:<port>` → один з ready pods.
+  - NodePort: пакет на `<IP node>:<nodePort>` → один з ready pods.
+- На порту NodePort немає процесу, який слухає. Ядро змінює адресу призначення пакета
+  (DNAT) на IP pod.
+- У проєкті: kube-proxy доставляє трафік з `node:30080` у pod Traefik (`:8000`). Далі
+  Traefik оминає kube-proxy і йде на IP pods `notes-api` напряму.
+- Перевірка: `docker exec notes-control-plane iptables-save | grep 30080` (або
+  `nft list ruleset`, якщо kube-proxy працює в режимі nftables).
 
 **CoreDNS**
 - Що це: DNS кластера. Ім'я Service (`notes-api`, `postgres`) перетворюється на IP.
@@ -389,6 +448,8 @@
 - Що це: Kubernetes IN Docker. Інструмент, а не дистрибутив. Він запускає звичайний
   upstream Kubernetes (через `kubeadm`), де кожна node — це Docker-контейнер.
 - У проєкті: локальний кластер `notes` для днів 3-8.
+- **extraPortMappings** — поле `kind-config.yaml`. Docker публікує порт node на host:
+  `127.0.0.1:80` → `node:30080`. Його можна задати тільки під час створення кластера.
 - Обмеження: NodePort доступний з хоста тільки через `extraPortMappings`, образи треба
   копіювати через `kind load`, Service типу LoadBalancer залишається в `Pending`, дані PVC
   зникають разом з кластером.
@@ -493,34 +554,103 @@
   StorageClass `standard` у kind.
 
 **Service (ClusterIP / NodePort / LoadBalancer / headless)**
-- Що це: стабільна адреса для групи Pods. Pods змінюють IP, а Service ні.
+- Що це: стабільна адреса для групи Pods. Pods змінюють IP, а Service ні. Service працює
+  на рівні L4 (IP + порт). Типи будуються один на одному:
   - **ClusterIP** — віртуальна IP-адреса лише всередині кластера (за замовчуванням).
     kube-proxy розподіляє трафік між ready pods.
-  - **NodePort** — відкриває порт (30000-32767) на кожній node. У проєкті: Traefik у kind
-    (30080/30443).
-  - **LoadBalancer** — хмара створює зовнішній load balancer. У kind залишається в
-    `Pending`. У проєкті: Traefik в EKS.
+  - **NodePort** — `ClusterIP` + порт (30000-32767) на **кожній** node. У проєкті:
+    Traefik у kind (30080/30443).
+  - **LoadBalancer** — `NodePort` + зовнішній load balancer, який створює cloud
+    controller. У kind cloud controller немає, тому `EXTERNAL-IP` залишається
+    `<pending>`. У проєкті: Traefik в EKS.
   - **Headless** (`clusterIP: None`) — без віртуальної IP. DNS одразу повертає IP pods. З
     StatefulSet дає ім'я кожному pod: `postgres-0.postgres`.
-- `port` — порт Service, `targetPort` — порт контейнера (можна за іменем, `http`).
-- Аналогія: ім'я сервісу в мережі docker-compose (`db:5432`).
+- Три поля портів (приклад — Service `traefik` у kind):
+  - `nodePort: 30080` — порт на node;
+  - `port: 80` — порт на ClusterIP;
+  - `targetPort: web` — порт контейнера (за іменем, тут `8000`).
+- **externalTrafficPolicy** — що робити, коли запит прийшов на node без потрібного pod.
+  - `Cluster` (за замовчуванням) — kube-proxy пересилає запит на інший node і замінює IP
+    клієнта на IP node (SNAT). Pod не бачить справжній IP клієнта.
+  - `Local` — тільки pods на цьому node. IP клієнта зберігається, але балансувальник має
+    знати, на яких nodes є pods.
+- Аналогія: ім'я сервісу в мережі docker-compose (`db:5432`). `NodePort` — як `ports:
+  "80:80"` у compose, але на кожному сервері кластера.
 
 **EndpointSlice**
-- Що це: список IP-адрес ready pods для Service. Його веде EndpointSlice controller за
+- Що це: список IP-адрес pods для Service. Його веде EndpointSlice controller за
   selector Service.
-- У проєкті: Traefik читає EndpointSlices і надсилає запити на IP pods напряму.
-  Перевірка: `kubectl -n notes get endpointslices`.
+- Поля:
+  - label `kubernetes.io/service-name: <service>` — зв'язок з Service. Ім'я slice має
+    випадковий суфікс, тому шукають за label;
+  - `endpoints[].addresses` — IP pod;
+  - `endpoints[].conditions` — `ready`, `serving`, `terminating`;
+  - `endpoints[].targetRef` — ім'я pod. Тільки довідка, маршрутизація його не
+    використовує;
+  - `ports` — `targetPort` Service, уже перетворений на число (`http` → `8080`).
+- Один Service може мати кілька slices: кожен slice має до 100 endpoints.
+- Pod не знаходять за ім'ям. Ланцюг: Ingress (`service.name`, `port.name`) → Service
+  (selector `app: notes-api`) → EndpointSlice (label `service-name`) → IP pods.
+- У проєкті: Traefik читає EndpointSlices, бере endpoints з `ready: true` і надсилає
+  запити на `<IP pod>:8080` напряму.
+- Перевірка: `kubectl -n notes get endpointslices -l kubernetes.io/service-name=notes-api
+  -o yaml`.
+
+**Informer (list + watch)**
+- Що це: спосіб, яким controllers читають API (бібліотека client-go).
+  - **List** — під час старту один раз бере всі об'єкти в локальний cache.
+  - **Watch** — тримає відкрите з'єднання. API server сам надсилає події `ADDED`,
+    `MODIFIED`, `DELETED`.
+- Тому RBAC для controllers має verbs `list` та `watch`. Приклад: ClusterRole Traefik
+  дає `list, watch` на `endpointslices`.
+- У проєкті: Traefik отримує подію після кожної зміни pods (rollout, HPA, видалення) і
+  будує нову конфігурацію. Кілька подій поспіль він обробляє як одну зміну.
+- Затримка між `deletionTimestamp` і новою конфігурацією Traefik — причина `502` без
+  `preStop` (день 4, Task 4).
+- Аналогія: `inotify` замість циклу `ls` кожну секунду.
 
 **Ingress / Ingress controller**
-- **Ingress** — правила HTTP-маршрутизації: "host `api.local` → Service `notes-api`".
-- **Ingress controller** — програма, яка реально виконує ці правила (Traefik).
+- **Ingress** — правила HTTP-маршрутизації (L7): "host `notes.localhost`, path `/` →
+  Service `notes-api`". Це тільки дані в API, а не програма. Без controller Ingress
+  створюється, але колонка `ADDRESS` порожня, і запити нікуди не йдуть.
+- **Ingress controller** — програма, яка читає Ingress і справді проксіює запити
+  (Traefik). Це звичайний Deployment зі своїм Service. Через цей Service (`NodePort` або
+  `LoadBalancer`) трафік заходить у кластер.
 - **IngressClass** — зв'язує Ingress з конкретним controller (`ingressClassName:
-  traefik`).
-- У проєкті: `http://notes.localhost` → Service `notes-api`.
-- Аналогія: labels Traefik у docker-compose.
+  traefik`). Потрібен, якщо в кластері кілька controllers.
+- У проєкті: `k8s/manifests/23-app-ingress.yaml`, `http://notes.localhost` → Service
+  `notes-api`.
+- Два Services у ланцюгу:
+  - `traefik` (NodePort) — доставляє трафік **до** controller (kube-proxy);
+  - `notes-api` (ClusterIP) — дає controller список pods. ClusterIP Traefik не
+    використовує.
+- Аналогія: Ingress = файл конфігурації nginx (`server_name`, `location`), controller =
+  процес nginx. У docker-compose ту саму роль, що й Ingress, грають labels Traefik:
+
+  | Label у compose | Поле Ingress |
+  |---|---|
+  | `traefik.enable=true` | `ingressClassName: traefik` |
+  | `routers.api.rule=Host(...)` | `rules[].host`, `paths[].path` |
+  | `services.api.loadbalancer.server.port=8080` | `backend.service.name` + `port.name` |
 
 **Traefik**
 - Що це: reverse proxy, ви його вже знаєте. У Kubernetes він працює як Ingress controller.
+- **Entrypoint** — порт, на якому Traefik приймає запити. У чарті: `web` (`:8000`),
+  `websecure` (`:8443`). Ці імена мають і порти Service `traefik`.
+- **Provider** — джерело маршрутів, яке Traefik постійно читає.
+  - У compose: provider `docker`, читає labels через `docker.sock`.
+  - У Kubernetes: provider `kubernetesingress` (Ingress) та `kubernetescrd` (CRD
+    `IngressRoute`). Доступ до API дає RBAC: чарт створює ServiceAccount та ClusterRole.
+- Налаштування, які є тільки в Traefik, задають через annotations на Ingress
+  (`traefik.ingress.kubernetes.io/...`) або через `IngressRoute`.
+- У проєкті: `k8s/traefik-values.yaml` задає тільки `type: NodePort` та `nodePort`.
+  Решту (`port: 80`, порти контейнера) бере чарт за замовчуванням.
+
+**Шлях запиту в kind (день 4)**
+1. `curl` перетворює `notes.localhost` на `127.0.0.1` (без DNS).
+2. Docker (`extraPortMappings`): `127.0.0.1:80` → `node:30080`.
+3. kube-proxy (Service `traefik`, NodePort): `node:30080` → pod Traefik `:8000`.
+4. Traefik (Ingress + EndpointSlice Service `notes-api`): → IP pod `notes-api:8080`.
 
 **ingress-nginx**
 - Що це: найпопулярніший Ingress controller у минулому. Проєкт закрито (retired) у 2026
@@ -638,6 +768,22 @@
 **EKS (Elastic Kubernetes Service)**
 - Що це: керований Kubernetes в AWS. AWS керує control plane, а ви керуєте nodes.
 - Ціна: control plane ~$0.10 на годину + EC2 для nodes.
+
+**Cloud controller**
+- Що це: компонент, який з'єднує Kubernetes з API хмари. Він бачить Service типу
+  `LoadBalancer` і створює балансувальник AWS (за замовчуванням CLB, з annotation — NLB).
+- У kind його немає, тому Service `LoadBalancer` залишається `<pending>`.
+- AWS вважає цей шлях legacy і рекомендує AWS Load Balancer Controller. Перевірте
+  поведінку для вашої версії EKS у дні 9.
+
+**Шлях запиту в EKS (день 9)**
+1. DNS AWS перетворює ім'я `<...>.elb.amazonaws.com` на публічні IP балансувальника.
+2. Балансувальник (public subnets) → `<IP node>:<nodePort>` (private subnets). Security
+   group nodes має дозволити NodePort.
+3. kube-proxy → pod Traefik. Pod може бути на іншому node (див. `externalTrafficPolicy`).
+4. Traefik → IP pod `notes-api`, як у kind.
+- Різниця з kind — тільки переходи 1-2. З AWS Load Balancer Controller та `target-type:
+  ip` перехід 3 зникає: NLB надсилає трафік напряму на pod Traefik.
 
 **Managed node group**
 - Що це: група EC2-інстансів для nodes. AWS сам створює та оновлює їх.

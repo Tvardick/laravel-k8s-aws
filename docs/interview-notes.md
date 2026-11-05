@@ -169,6 +169,27 @@ A. IAM Policy — це JSON-документ, який описує дозвол
    може побачити їх. Захист дають додаткові механізми RBAC, шифрування etcd (в EKS — через KMS) і зовнішній менеджер секретів. 
    Команда з Task 2 Step 6 показала мій пароль у відкритому вигляді це і є доказ того що пароль не шифрується.
    В production треба використовувати AWS Secrets manager з шифруванням паролів, ключів та ротацією.
+## Day 4: Ingress, autoscaling, debugging
+
+1. How does a request from `curl http://notes.localhost/api/notes` reach a notes-api pod?
+   Name every hop and the Service type on each hop (Task 1, Step 6).
+   When do you need a Service of type LoadBalancer? Why is Traefik a NodePort in kind?
+   A. Запит проходить кілька етапів, спочатку curl перетворю *.localhost на 127.0.0.1 і так як порт не заданий,
+   по замовчуванню запит летить на порт 80,  наступний крок це конфігурація kind яка публікує порт 127.0.0.1:80 -> node:30080 (extraPortMappings). 
+   Далі kube-proxy звертається до API та читає Service та додає NodePort в iptables яке перенаправляє пакет у pod traefik на порт по-замовчуванню 8000. Коли traefik отримав пакет він бере список EndpointSlice та за іменем сервісу отримує всі IP Pod, обирає один Pod для надсилання запиту pod:8080.
+   Traefik порівнює Host: notes.localhost і path / з правилом Ingress, а потім знаходить Service notes-api
+   Тип сервісу LoadBalancer потрібен коли є зовнішній балансувальник від хмарного провайдера. Щоб трафік з інтернету міг дійти до нашого сервісу він проходить шлях з PublicIP -> LoadBalancer -> NodePort -> Pod. 
+   Чому Traefik має тип сервісу NodePort? Взагалі по заповчуванню Traefik має тип сервісу LoadBalancer, він має бути доступним ззовні кластера, але через те що kind не має cloude controller  EXTERNAL-IP залишається <pending>. А кожен Node це просто docker контейнер, я опублікував NodePort на 127.0.0.1:80 щоб він був доступний для curl
+2. A pod is in CrashLoopBackOff. Describe your debugging steps and commands.
+   How do you tell OOMKilled from an application crash and from SIGKILL after the grace
+   period (Task 5, day 3)? What is the difference between a memory request and a
+   memory limit?
+   A. Якщо Pod постійно падає, тоді треба перевірити логи пода через команду  kubectl -n {{namespace}} logs {{podname}}
+   та перевірити describe pod {{podname}} поле Last State може показати що сталось. Також можно прочитати events та зрозуміти на якому кроці впав Pod. 
+   Як можно відрізнити тип падіння OomKilled, Application error та sigkill? Якщо под падає через помилку додатка, тоді exitcode не буде 137 (sigkill) або 143 (sigterm) бо ці коди означають що процес отримав сигнал про закриття/вбивство. Зазвичай коли падає сам додаток, ми бачимо логи які він залишає, та можемо зрозуміти на якому етапі це відбулось. Коли відбувається sigkill, додаток вбивається миттево, тому логів не буде або вони будуть обірвані ми це побачимо через describe pod reasone.
+    1. kubectl describe pod: подивіться Last State, Reason, Exit Code та events.
+    2. kubectl logs --previous: знайдіть причину в логах.
+   Яка різниця між Memory request та memory limit? Request виставляє значення того скільки пам'яті зарезервовано для цього процесу, а limit це максимальна позначка після чого процес буде вбито. 
 
 
 Чим відрізняються probes liveness vs readiness?

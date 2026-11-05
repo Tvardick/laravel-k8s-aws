@@ -22,3 +22,7 @@ COPY --chown=www-data:www-data --from=vendor /var/www/html /var/www/html
 # The base image already runs as www-data on port 8080. Explicit for readers.
 USER www-data
 EXPOSE 8080
+
+# The base image sets SIGQUIT, but its init (s6-overlay, PID 1) ignores it: Kubernetes
+# then waits terminationGracePeriodSeconds (30 s) and sends SIGKILL. SIGTERM stops it in ~3 s.
+STOPSIGNAL SIGTERM

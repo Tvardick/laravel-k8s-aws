@@ -636,14 +636,28 @@ kubectl -n notes rollout status deploy/notes-api --timeout=200s
 Перевірте, що pods працюють саме з новим образом:
 
 ```bash
-docker image inspect notes-api:local --format '{{.Id}}'
-kubectl -n notes get pods -l app=notes-api \
-  -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+for c in $(kubectl -n notes get pods -l app=notes-api \
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].containerID}{"\n"}{end}'); do
+  img=$(docker exec notes-control-plane crictl inspect -o go-template \
+    --template '{{.status.imageId}}' "${c#containerd://}")
+  echo "$img $(docker exec notes-control-plane crictl inspecti -o go-template \
+    --template '{{.info.imageSpec.config.StopSignal}}' "$img")"
+done
 ```
 
-Очікуваний результат: hash `sha256:...` у кожного pod збігається з `Id` локального образу.
-Якщо не збігається, pod працює зі старим образом. Повторіть `kind load` та
-`rollout restart`.
+Очікуваний результат: кожен pod друкує `SIGTERM`. Якщо pod друкує `SIGQUIT`, він працює зі
+старим образом. Повторіть `kind load` та `rollout restart`.
+
+Цикл бере образ кожного запущеного контейнера, а не образ за тегом. Тому він ловить і
+випадок, коли `kind load` пройшов, а `rollout restart` ні.
+
+Не порівнюйте hash локального образу з `imageID` pod. Це hash різних об'єктів:
+- `docker image inspect --format '{{.Id}}'` — digest index (Docker з containerd image
+  store) або digest конфігурації (класичне сховище);
+- `imageID` pod — digest manifest, який `kind load` створив під час імпорту на node.
+  Звідси ім'я `import-<дата>@sha256:...`.
+
+Ці hash не збігаються навіть для правильного образу.
 
 Чому `rollout restart`: тег `notes-api:local` не змінився, тому маніфест теж не змінився.
 `kubectl apply` не бачить різниці і не створює нових pods. `rollout restart` додає в
