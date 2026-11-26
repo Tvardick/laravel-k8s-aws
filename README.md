@@ -3,7 +3,7 @@
 A Laravel API that goes from a laptop to AWS EKS. The project uses Docker,
 Kubernetes, Helm, Terraform, ArgoCD and GitHub Actions.
 
-I build this project to get practical DevOps experience. Each step has a written
+I am building this project to get practical DevOps experience. Each step has a written
 plan, failure drills and interview notes. The application is small on purpose. The
 focus is on the platform around it.
 
@@ -84,7 +84,7 @@ Each decision has a reason. Details are in the code comments and in `docs/plans/
   500 response instead of a 404.
 - **Least privilege in CI.** The `GITHUB_TOKEN` can only read the code. AWS access
   will use OIDC and an IAM role, with no access keys in GitHub.
-- **Traefik, not ingress-nginx.** ingress-nginx reaches the end of maintenance in 2026.
+- **Traefik, not ingress-nginx.** ingress-nginx is retired (end of maintenance in 2026).
 
 ## Run locally
 
@@ -93,8 +93,10 @@ Requirements: Docker, `kind`, `kubectl`, `helm`.
 ### Docker Compose
 
 1. Copy `.env.example` to `.env`.
-2. Set `APP_KEY` and `DB_PASSWORD` in `.env`.
-3. Start the stack:
+2. Set `DB_PASSWORD` in `.env`.
+3. Set `APP_KEY` in `.env`. This command makes a key without PHP:
+   `echo "base64:$(openssl rand -base64 32)"`.
+4. Start the stack:
 
 ```bash
 docker compose up --build
